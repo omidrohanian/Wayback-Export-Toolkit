@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Download execution and manifest emission for selected candidates."""
+
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 from urllib.parse import urlparse
@@ -25,6 +27,11 @@ def download_candidates(
     http_client: HttpClient | None = None,
     analysis: AnalysisResult | None = None,
 ) -> DownloadResult:
+    """Download selected candidates and return a summarized result.
+
+    If `analysis` is not supplied, this function performs analysis first using
+    options mirrored from `DownloadOptions`.
+    """
     if options is None:
         options = DownloadOptions(output_dir=Path.cwd() / "downloads")
     http_client = http_client or UrlLibHttpClient()
@@ -33,16 +40,16 @@ def download_candidates(
         analysis = analyze_snapshot(
             snapshot_url,
             options=AnalyzeOptions(
-            include_pattern=options.include_pattern,
-            exclude_pattern=options.exclude_pattern,
-            timeout_seconds=options.timeout_seconds,
-            user_agent=options.user_agent,
-            max_depth=options.max_depth,
-            max_pages=options.max_pages,
-            same_host_only=options.same_host_only,
-        ),
-        http_client=http_client,
-    )
+                include_pattern=options.include_pattern,
+                exclude_pattern=options.exclude_pattern,
+                timeout_seconds=options.timeout_seconds,
+                user_agent=options.user_agent,
+                max_depth=options.max_depth,
+                max_pages=options.max_pages,
+                same_host_only=options.same_host_only,
+            ),
+            http_client=http_client,
+        )
 
     selected = _resolve_selection(analysis.candidates, selection, options)
 
@@ -60,6 +67,7 @@ def download_candidates(
             filename=candidate.estimated_filename,
             counts=filename_counts,
         )
+
         if options.manifest_only:
             records.append(
                 DownloadRecord(
@@ -121,6 +129,7 @@ def _resolve_selection(
     selection: Optional[Sequence[CandidateFile]],
     options: DownloadOptions,
 ) -> List[CandidateFile]:
+    """Resolve download selection from explicit input or interaction settings."""
     if selection is not None:
         return list(selection)
     if options.download_all:
@@ -131,6 +140,7 @@ def _resolve_selection(
 
 
 def _destination_for_candidate(files_dir: Path, filename: str, counts: Dict[str, int]) -> Path:
+    """Create a deterministic path and suffix duplicates (`_1`, `_2`, ...)."""
     count = counts.get(filename, 0)
     counts[filename] = count + 1
     if count == 0:

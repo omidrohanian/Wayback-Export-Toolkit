@@ -10,6 +10,21 @@ A Python package and CLI that accepts a specific Wayback Machine snapshot URL, d
 - Saves original files and writes a structured `manifest.json`
 - Skips files that already exist by default
 
+## Project structure
+
+```text
+src/wayback_export/
+  cli.py         # CLI entry points and argument parsing
+  gui.py         # Tkinter desktop GUI
+  analysis.py    # Crawling + candidate discovery orchestration
+  discovery.py   # Link extraction and confidence scoring
+  download.py    # Download execution and manifest generation
+  http_client.py # HTTP transport abstraction
+  wayback.py     # Wayback URL parsing/normalization helpers
+  output.py      # Output pathing and manifest writer
+tests/           # Unit and behavior tests
+```
+
 ## Install
 
 ```bash
@@ -20,6 +35,21 @@ Optional rich prompt/table output:
 
 ```bash
 python -m pip install -e .[ui]
+```
+
+## Development quickstart
+
+Install dev dependencies and run tests:
+
+```bash
+python -m pip install -e .[dev]
+pytest -q
+```
+
+Run the CLI locally:
+
+```bash
+python -m wayback_export.cli analyze "https://web.archive.org/web/20200101010101/http://example.com/"
 ```
 
 ## CLI Usage
@@ -94,3 +124,15 @@ result = download_candidates(
 - Traversal is bounded by `--max-depth` and `--max-pages` (defaults: `0`, `100`).
 - v1 expects a direct snapshot URL (not an original URL that needs snapshot discovery).
 - Files are preserved in original format; no cross-format normalization is attempted.
+
+## Troubleshooting
+
+- Error: `Interactive selection requires a TTY. Re-run with --all.`
+  Cause: `download` was run in a non-interactive environment without `--all`.
+  Fix: add `--all` or run the command in an interactive terminal.
+
+- Download failures due to network instability
+  Failed downloads are recorded in `manifest.json`. Partial files are cleaned up automatically.
+
+- No candidates found
+  Try increasing crawl scope with `--max-depth` and `--max-pages`, or relaxing filters.

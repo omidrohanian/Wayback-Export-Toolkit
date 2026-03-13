@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Link extraction and heuristic candidate detection.
+
+This module extracts links from archived HTML, scores likely export artifacts,
+and identifies navigational links for bounded crawling.
+"""
+
 import os
 import re
 from html.parser import HTMLParser
@@ -58,6 +64,8 @@ NON_NAV_EXTENSIONS = {
 
 
 class LinkCollector(HTMLParser):
+    """Collect href links and anchor text, including nested text nodes."""
+
     def __init__(self) -> None:
         super().__init__()
         self._stack: List[str] = []
@@ -91,6 +99,7 @@ class LinkCollector(HTMLParser):
 
 
 def extract_links(html: str) -> List[Tuple[str, str]]:
+    """Parse HTML and return de-duplicated `(href, text)` pairs."""
     parser = LinkCollector()
     parser.feed(html)
     deduped = []
@@ -104,6 +113,10 @@ def extract_links(html: str) -> List[Tuple[str, str]]:
 
 
 def classify_candidate(archived_url: str, label_text: str = "") -> Tuple[float, str, str]:
+    """Score a link as likely data/export artifact and return details.
+
+    Returns `(confidence, reason, detected_type)`.
+    """
     parsed = urlparse(archived_url)
     path = parsed.path.lower()
     lowered_text = label_text.lower()
@@ -141,6 +154,7 @@ def classify_candidate(archived_url: str, label_text: str = "") -> Tuple[float, 
 
 
 def estimate_filename(archived_url: str, fallback_index: int) -> str:
+    """Estimate a stable filename from URL path/query with a fallback index."""
     parsed = urlparse(archived_url)
     name = os.path.basename(parsed.path)
     if name and "." in name:
@@ -161,6 +175,7 @@ def sanitize_filename(name: str) -> str:
 
 
 def discover_candidates(snapshot, html: str) -> List[CandidateFile]:
+    """Return likely data/export candidates for a snapshot HTML page."""
     links = extract_links(html)
     candidates: List[CandidateFile] = []
     for idx, (href, text) in enumerate(links, start=1):
@@ -191,6 +206,7 @@ def filter_candidates(
     include_pattern: Optional[str],
     exclude_pattern: Optional[str],
 ) -> List[CandidateFile]:
+    """Apply include/exclude regex filtering to discovered candidates."""
     include_re = re.compile(include_pattern) if include_pattern else None
     exclude_re = re.compile(exclude_pattern) if exclude_pattern else None
     filtered: List[CandidateFile] = []
@@ -205,6 +221,7 @@ def filter_candidates(
 
 
 def discover_follow_links(snapshot, html: str, same_host_only: bool = True) -> List[str]:
+    """Return navigational links suitable for continued crawling."""
     links = extract_links(html)
     follow: List[str] = []
     snapshot_host = urlparse(snapshot.original_url).netloc.lower()
@@ -230,6 +247,7 @@ def discover_follow_links(snapshot, html: str, same_host_only: bool = True) -> L
 
 
 def dedupe_candidates(candidates: Iterable[CandidateFile]) -> List[CandidateFile]:
+    """Keep only the first candidate for each archived URL."""
     deduped: List[CandidateFile] = []
     seen = set()
     for candidate in candidates:
