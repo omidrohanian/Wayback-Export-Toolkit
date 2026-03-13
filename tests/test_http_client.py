@@ -38,7 +38,7 @@ def test_download_file_success_uses_atomic_write(
     payload = b"hello world"
     destination = tmp_path / "data.bin"
 
-    def fake_urlopen(_request, timeout):
+    def fake_urlopen(_request, timeout, context=None):
         assert timeout == 10
         return _FakeResponse([payload])
 
@@ -62,7 +62,7 @@ def test_download_file_failure_cleans_partial_file(
 ) -> None:
     destination = tmp_path / "broken.bin"
 
-    def fake_urlopen(_request, timeout):
+    def fake_urlopen(_request, timeout, context=None):
         assert timeout == 10
         return _FakeResponse([b"partial"], fail_after=1)
 
