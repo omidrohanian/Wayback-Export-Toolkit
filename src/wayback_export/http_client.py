@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -38,9 +39,10 @@ class UrlLibHttpClient:
         destination.parent.mkdir(parents=True, exist_ok=True)
         sha256 = hashlib.sha256()
         total = 0
+        temp_destination = destination.with_name(f"{destination.name}.part")
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                with destination.open("wb") as out:
+                with temp_destination.open("wb") as out:
                     while True:
                         chunk = response.read(65536)
                         if not chunk:
@@ -49,5 +51,7 @@ class UrlLibHttpClient:
                         total += len(chunk)
                         sha256.update(chunk)
         except urllib.error.URLError as exc:
+            temp_destination.unlink(missing_ok=True)
             raise RuntimeError(f"Download failed for {url}: {exc}") from exc
+        os.replace(temp_destination, destination)
         return total, sha256.hexdigest()
