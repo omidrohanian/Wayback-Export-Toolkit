@@ -5,3 +5,8 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.DS_Store
+__MACOSX/
+downloads/
+release/
+*.zip

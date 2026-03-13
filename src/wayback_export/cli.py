@@ -54,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Follow links outside the original host",
     )
+
+    subparsers.add_parser("gui", help="Launch desktop GUI")
     return parser
 
 
@@ -65,11 +67,19 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_analyze(args)
         if args.command == "download":
             return _cmd_download(args)
+        if args.command == "gui":
+            return _cmd_gui()
     except WaybackUrlError as exc:
         parser.error(str(exc))
     except ValueError as exc:
         parser.error(str(exc))
     return 0
+
+
+def _cmd_gui() -> int:
+    from .gui import launch_gui
+
+    return launch_gui()
 
 
 def _cmd_analyze(args: argparse.Namespace) -> int:

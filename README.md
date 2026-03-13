@@ -54,6 +54,12 @@ JSON output:
 wayback-export analyze "https://web.archive.org/web/20200101010101/http://example.com/" --json
 ```
 
+Launch the desktop GUI:
+
+```bash
+wayback-export gui
+```
+
 ## Output layout
 
 For each snapshot, files are stored under:

@@ -85,3 +85,9 @@ def test_cli_passes_depth_and_host_flags(monkeypatch) -> None:
     assert captured["options"].max_depth == 3
     assert captured["options"].max_pages == 25
     assert captured["options"].same_host_only is False
+
+
+def test_cli_gui_command(monkeypatch) -> None:
+    monkeypatch.setattr(cli, "_cmd_gui", lambda: 0)
+    rc = cli.main(["gui"])
+    assert rc == 0
