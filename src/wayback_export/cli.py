@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .analysis import analyze_snapshot
 from .download import download_candidates
-from .models import AnalyzeOptions, DownloadOptions, result_to_dict
+from .mirror import mirror_snapshot
+from .models import AnalyzeOptions, DownloadOptions, MirrorOptions, result_to_dict
 from .selection import prompt_select_candidates
 from .wayback import WaybackUrlError
 
@@ -15,11 +16,11 @@ from .wayback import WaybackUrlError
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wayback-export",
-        description="Analyze Wayback snapshot links and download export-like artifacts.",
+        description="Analyze Wayback snapshots, download artifacts, or mirror full static sites.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    analyze = subparsers.add_parser("analyze", help="Analyze snapshot and list candidates")
+    analyze = subparsers.add_parser("analyze", help="Analyze snapshot and list export-like candidates")
     analyze.add_argument("snapshot_url", help="Wayback snapshot URL")
     analyze.add_argument("--json", action="store_true", help="Print JSON output")
     analyze.add_argument("--include-pattern", help="Regex include filter", default=None)
@@ -36,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     download = subparsers.add_parser(
-        "download", help="Analyze snapshot and download selected candidates"
+        "download", help="Analyze snapshot and download selected export-like candidates"
     )
     download.add_argument("snapshot_url", help="Wayback snapshot URL")
     download.add_argument("--output", type=Path, default=Path("./downloads"))
@@ -56,6 +57,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Follow links outside the original host",
     )
 
+    mirror = subparsers.add_parser(
+        "mirror",
+        help="Mirror a full static snapshot (pages + local assets) for offline browsing",
+    )
+    mirror.add_argument("snapshot_url", help="Wayback snapshot URL")
+    mirror.add_argument("--output", type=Path, default=Path("./downloads"))
+    mirror.add_argument("--json", action="store_true", help="Print JSON output")
+    mirror.add_argument("--timeout", type=int, default=30, help="HTTP timeout in seconds")
+    mirror.add_argument("--max-depth", type=int, default=2, help="Traversal depth from root page")
+    mirror.add_argument("--max-pages", type=int, default=500, help="Maximum pages to mirror")
+    mirror.add_argument(
+        "--allow-cross-host",
+        action="store_true",
+        help="Allow mirroring resources outside the original host",
+    )
+
     subparsers.add_parser("gui", help="Launch desktop GUI")
     return parser
 
@@ -68,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_analyze(args)
         if args.command == "download":
             return _cmd_download(args)
+        if args.command == "mirror":
+            return _cmd_mirror(args)
         if args.command == "gui":
             return _cmd_gui()
     except WaybackUrlError as exc:
@@ -162,6 +181,33 @@ def _cmd_download(args: argparse.Namespace) -> int:
         f"Downloaded={len(result.downloaded)} Skipped={len(result.skipped)} "
         f"Failed={len(result.failed)} Planned={len(result.planned)}"
     )
+    return 0 if not result.failed else 2
+
+
+def _cmd_mirror(args: argparse.Namespace) -> int:
+    result = mirror_snapshot(
+        args.snapshot_url,
+        options=MirrorOptions(
+            output_dir=args.output,
+            timeout_seconds=args.timeout,
+            max_depth=args.max_depth,
+            max_pages=args.max_pages,
+            same_host_only=not args.allow_cross_host,
+        ),
+    )
+
+    if args.json:
+        print(json.dumps(result_to_dict(result), indent=2))
+        return 0
+
+    print(f"Site directory: {result.site_dir}")
+    print(f"Manifest: {result.manifest_path}")
+    print(
+        f"Pages={result.pages_saved} Assets downloaded={result.assets_downloaded} "
+        f"Assets skipped={result.assets_skipped} Failed={len(result.failed)}"
+    )
+    for warning in result.warnings:
+        print(f"Warning: {warning}")
     return 0 if not result.failed else 2
 
 

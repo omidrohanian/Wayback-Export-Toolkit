@@ -77,6 +77,28 @@ class DownloadResult:
     planned: List[DownloadRecord]
 
 
+@dataclass
+class MirrorOptions:
+    output_dir: Path
+    timeout_seconds: int = 30
+    user_agent: str = "wayback-export-toolkit/0.1"
+    max_depth: int = 2
+    max_pages: int = 500
+    same_host_only: bool = True
+    skip_existing: bool = True
+
+
+@dataclass
+class MirrorResult:
+    manifest_path: str
+    site_dir: str
+    pages_saved: int
+    assets_downloaded: int
+    assets_skipped: int
+    failed: List[Dict[str, str]] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+
 def dataclass_to_dict(value: Any) -> Any:
     if hasattr(value, "__dataclass_fields__"):
         return {
@@ -92,5 +114,5 @@ def dataclass_to_dict(value: Any) -> Any:
     return value
 
 
-def result_to_dict(result: AnalysisResult | DownloadResult) -> Dict[str, Any]:
+def result_to_dict(result: AnalysisResult | DownloadResult | MirrorResult) -> Dict[str, Any]:
     return dataclass_to_dict(result)

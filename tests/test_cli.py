@@ -1,11 +1,13 @@
+import pytest
+
 from wayback_export import cli
 from wayback_export.models import (
     AnalysisResult,
     CandidateFile,
     DownloadResult,
+    MirrorResult,
     SnapshotInfo,
 )
-import pytest
 
 
 def _analysis_result() -> AnalysisResult:
@@ -34,6 +36,18 @@ def _download_result() -> DownloadResult:
         skipped=[],
         failed=[],
         planned=[],
+    )
+
+
+def _mirror_result() -> MirrorResult:
+    return MirrorResult(
+        manifest_path="/tmp/mirror_manifest.json",
+        site_dir="/tmp/site",
+        pages_saved=2,
+        assets_downloaded=4,
+        assets_skipped=0,
+        failed=[],
+        warnings=[],
     )
 
 
@@ -105,3 +119,13 @@ def test_cli_download_requires_tty_for_interactive_mode(monkeypatch) -> None:
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["download", "https://web.archive.org/web/20200101010101/http://example.com/"])
     assert exc_info.value.code == 2
+
+
+def test_cli_mirror_json(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "mirror_snapshot", lambda *args, **kwargs: _mirror_result())
+    rc = cli.main(
+        ["mirror", "https://web.archive.org/web/20200101010101/http://example.com/", "--json"]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert '"pages_saved": 2' in out
