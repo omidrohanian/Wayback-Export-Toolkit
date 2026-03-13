@@ -63,3 +63,20 @@ def test_discover_follow_links_same_host_only() -> None:
     """
     urls = discover_follow_links(snapshot, html, same_host_only=True)
     assert urls == ["https://web.archive.org/web/20200101010101/http://example.com/blog/post.html"]
+
+
+def test_discover_candidates_collects_nested_anchor_text() -> None:
+    snapshot = parse_snapshot_url(
+        "https://web.archive.org/web/20200101010101/http://example.com/"
+    )
+    html = """
+    <html><body>
+      <a href="/api/report">
+        <span>Export</span><span>data</span><span>backup</span><span>archive</span>
+        <span>dataset</span><span>download</span><span>dump</span>
+      </a>
+    </body></html>
+    """
+    candidates = discover_candidates(snapshot, html)
+    assert len(candidates) == 1
+    assert candidates[0].archived_url.endswith("/api/report")

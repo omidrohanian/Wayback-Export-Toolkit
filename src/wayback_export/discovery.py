@@ -60,29 +60,34 @@ NON_NAV_EXTENSIONS = {
 class LinkCollector(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
-        self._stack: List[Tuple[str, Optional[str]]] = []
+        self._stack: List[str] = []
+        self._active_anchor_href: Optional[str] = None
         self.links: List[Tuple[str, str]] = []
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
         attrs_map = dict(attrs)
         href = attrs_map.get("href")
-        self._stack.append((tag, href))
-        if href and tag in {"a", "link"}:
+        self._stack.append(tag)
+        if tag == "a" and href:
+            self._active_anchor_href = href
+            self.links.append((href, ""))
+            return
+        if href and tag == "link":
             self.links.append((href, ""))
 
     def handle_data(self, data: str) -> None:
-        if not self._stack:
+        if not self._stack or not self._active_anchor_href:
             return
-        tag, href = self._stack[-1]
-        if tag == "a" and href and self.links:
-            current_href, current_text = self.links[-1]
-            if current_href == href:
-                text = (current_text + " " + data).strip()
-                self.links[-1] = (current_href, text)
+        current_href, current_text = self.links[-1]
+        if current_href == self._active_anchor_href:
+            text = (current_text + " " + data).strip()
+            self.links[-1] = (current_href, text)
 
     def handle_endtag(self, tag: str) -> None:
         if self._stack:
             self._stack.pop()
+        if tag == "a":
+            self._active_anchor_href = None
 
 
 def extract_links(html: str) -> List[Tuple[str, str]]:

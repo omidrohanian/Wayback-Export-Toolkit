@@ -5,6 +5,7 @@ from wayback_export.models import (
     DownloadResult,
     SnapshotInfo,
 )
+import pytest
 
 
 def _analysis_result() -> AnalysisResult:
@@ -91,3 +92,16 @@ def test_cli_gui_command(monkeypatch) -> None:
     monkeypatch.setattr(cli, "_cmd_gui", lambda: 0)
     rc = cli.main(["gui"])
     assert rc == 0
+
+
+def test_cli_download_requires_tty_for_interactive_mode(monkeypatch) -> None:
+    class _NoTty:
+        @staticmethod
+        def isatty() -> bool:
+            return False
+
+    monkeypatch.setattr(cli, "analyze_snapshot", lambda *args, **kwargs: _analysis_result())
+    monkeypatch.setattr(cli.sys, "stdin", _NoTty())
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["download", "https://web.archive.org/web/20200101010101/http://example.com/"])
+    assert exc_info.value.code == 2

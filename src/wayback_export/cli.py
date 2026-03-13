@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from .analysis import analyze_snapshot
@@ -130,6 +131,8 @@ def _cmd_download(args: argparse.Namespace) -> int:
 
     selected = analysis.candidates
     if not args.all:
+        if not sys.stdin.isatty():
+            raise ValueError("Interactive selection requires a TTY. Re-run with --all.")
         selected = prompt_select_candidates(analysis.candidates)
 
     result = download_candidates(
