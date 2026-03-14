@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import posixpath
 import re
+import shutil
 from typing import Iterable, List
 from urllib.parse import unquote, urlparse
 
@@ -89,6 +90,11 @@ def mirror_snapshot(
     host = urlparse(snapshot.original_url).netloc.lower()
     run_dir = build_run_dir(options.output_dir, host or "snapshot", snapshot.timestamp)
     site_dir = run_dir / "site"
+
+    # Remove legacy export artifacts from previous `download` runs for the same snapshot.
+    _cleanup_legacy_outputs(run_dir)
+    # Rebuild the mirrored site folder from scratch each run to avoid stale pages.
+    shutil.rmtree(site_dir, ignore_errors=True)
     site_dir.mkdir(parents=True, exist_ok=True)
 
     queue = deque([(snapshot.snapshot_url, 0)])
@@ -100,6 +106,7 @@ def mirror_snapshot(
     warnings: List[str] = []
     failed: List[dict[str, str]] = []
 
+    # Breadth-first crawl keeps page depth predictable and bounded.
     while queue and len(visited_pages) < options.max_pages:
         current_url, depth = queue.popleft()
         if current_url in visited_pages:
@@ -226,6 +233,15 @@ def mirror_snapshot(
         warnings=warnings,
         failed=failed,
     )
+
+
+def _cleanup_legacy_outputs(run_dir: Path) -> None:
+    legacy_manifest = run_dir / "manifest.json"
+    legacy_files_dir = run_dir / "files"
+    if legacy_manifest.exists():
+        legacy_manifest.unlink()
+    if legacy_files_dir.exists():
+        shutil.rmtree(legacy_files_dir, ignore_errors=True)
 
 
 def _parse_srcset_urls(raw: str) -> List[str]:
