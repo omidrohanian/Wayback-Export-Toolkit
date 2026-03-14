@@ -11,6 +11,7 @@ from pathlib import Path
 import posixpath
 import re
 import shutil
+import time
 from typing import Iterable, List
 from urllib.parse import unquote, urlparse
 
@@ -91,9 +92,7 @@ def mirror_snapshot(
     run_dir = build_run_dir(options.output_dir, host or "snapshot", snapshot.timestamp)
     site_dir = run_dir / "site"
 
-    # Remove legacy export artifacts from previous `download` runs for the same snapshot.
     _cleanup_legacy_outputs(run_dir)
-    # Rebuild the mirrored site folder from scratch each run to avoid stale pages.
     shutil.rmtree(site_dir, ignore_errors=True)
     site_dir.mkdir(parents=True, exist_ok=True)
 
@@ -106,37 +105,68 @@ def mirror_snapshot(
     warnings: List[str] = []
     failed: List[dict[str, str]] = []
 
-    # Breadth-first crawl keeps page depth predictable and bounded.
     while queue and len(visited_pages) < options.max_pages:
         current_url, depth = queue.popleft()
         if current_url in visited_pages:
             continue
         visited_pages.add(current_url)
 
+        fetch_url = current_url
         try:
-            html = http_client.get_text(
-                current_url,
+            html = _get_text_with_retries(
+                http_client,
+                fetch_url,
                 timeout=options.timeout_seconds,
                 user_agent=options.user_agent,
             )
-        except Exception as exc:
-            if depth == 0:
-                raise
-            failed.append({"url": current_url, "stage": "page_fetch", "error": str(exc)})
-            warnings.append(f"Failed to fetch page depth={depth}: {current_url}")
-            continue
+        except Exception as primary_exc:
+            fallback_url = _alternate_archived_scheme_url(current_url)
+            if fallback_url:
+                try:
+                    html = _get_text_with_retries(
+                        http_client,
+                        fallback_url,
+                        timeout=options.timeout_seconds,
+                        user_agent=options.user_agent,
+                    )
+                    fetch_url = fallback_url
+                    visited_pages.add(fetch_url)
+                    warnings.append(
+                        f"Used scheme fallback for page: {current_url} -> {fallback_url}"
+                    )
+                except Exception as fallback_exc:
+                    if depth == 0:
+                        raise
+                    failed.append(
+                        {
+                            "url": current_url,
+                            "stage": "page_fetch",
+                            "error": f"{primary_exc} | fallback_failed={fallback_exc}",
+                        }
+                    )
+                    warnings.append(f"Failed to fetch page depth={depth}: {current_url}")
+                    continue
+            else:
+                if depth == 0:
+                    raise
+                failed.append({"url": current_url, "stage": "page_fetch", "error": str(primary_exc)})
+                warnings.append(f"Failed to fetch page depth={depth}: {current_url}")
+                continue
 
-        page_original_url = original_url_from_archived_url(current_url) or snapshot.original_url
+        page_original_url = original_url_from_archived_url(fetch_url) or snapshot.original_url
         page_snapshot = SnapshotInfo(
-            snapshot_url=current_url,
+            snapshot_url=fetch_url,
             timestamp=snapshot.timestamp,
-            archived_url=current_url,
+            archived_url=fetch_url,
             original_url=page_original_url,
         )
 
-        page_html[current_url] = html
-        page_snapshot_map[current_url] = page_snapshot
-        url_to_local_path[current_url] = _local_path_for_original_url(page_original_url)
+        page_rel_path = _local_path_for_original_url(page_original_url)
+        page_html[fetch_url] = html
+        page_snapshot_map[fetch_url] = page_snapshot
+        url_to_local_path[fetch_url] = page_rel_path
+        if fetch_url != current_url:
+            url_to_local_path[current_url] = page_rel_path
 
         collected = _collect_resources(html)
 
@@ -185,15 +215,42 @@ def mirror_snapshot(
             assets_skipped += 1
             continue
         try:
-            http_client.download_file(
+            _download_with_retries(
+                http_client,
                 asset_url,
                 destination=destination,
                 timeout=options.timeout_seconds,
                 user_agent=options.user_agent,
             )
             assets_downloaded += 1
-        except Exception as exc:
-            failed.append({"url": asset_url, "stage": "asset_download", "error": str(exc)})
+        except Exception as primary_exc:
+            fallback_url = _alternate_archived_scheme_url(asset_url)
+            if not fallback_url:
+                failed.append(
+                    {"url": asset_url, "stage": "asset_download", "error": str(primary_exc)}
+                )
+                continue
+            try:
+                _download_with_retries(
+                    http_client,
+                    fallback_url,
+                    destination=destination,
+                    timeout=options.timeout_seconds,
+                    user_agent=options.user_agent,
+                )
+                assets_downloaded += 1
+                warnings.append(
+                    f"Used scheme fallback for asset: {asset_url} -> {fallback_url}"
+                )
+                url_to_local_path[fallback_url] = local_rel
+            except Exception as fallback_exc:
+                failed.append(
+                    {
+                        "url": asset_url,
+                        "stage": "asset_download",
+                        "error": f"{primary_exc} | fallback_failed={fallback_exc}",
+                    }
+                )
 
     pages_saved = 0
     for page_url, html in page_html.items():
@@ -242,6 +299,59 @@ def _cleanup_legacy_outputs(run_dir: Path) -> None:
         legacy_manifest.unlink()
     if legacy_files_dir.exists():
         shutil.rmtree(legacy_files_dir, ignore_errors=True)
+
+
+def _alternate_archived_scheme_url(archived_url: str) -> str | None:
+    if "/https://" in archived_url:
+        return archived_url.replace("/https://", "/http://", 1)
+    if "/http://" in archived_url:
+        return archived_url.replace("/http://", "/https://", 1)
+    return None
+
+
+def _get_text_with_retries(
+    http_client: HttpClient,
+    url: str,
+    timeout: int,
+    user_agent: str,
+    retries: int = 2,
+) -> str:
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return http_client.get_text(url, timeout=timeout, user_agent=user_agent)
+        except Exception as exc:  # pragma: no cover - exercised by higher-level tests
+            last_error = exc
+            if attempt >= retries:
+                break
+            time.sleep(0.25 * (attempt + 1))
+    raise RuntimeError(str(last_error))
+
+
+def _download_with_retries(
+    http_client: HttpClient,
+    url: str,
+    destination: Path,
+    timeout: int,
+    user_agent: str,
+    retries: int = 2,
+) -> None:
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            http_client.download_file(
+                url,
+                destination=destination,
+                timeout=timeout,
+                user_agent=user_agent,
+            )
+            return
+        except Exception as exc:  # pragma: no cover - exercised by higher-level tests
+            last_error = exc
+            if attempt >= retries:
+                break
+            time.sleep(0.25 * (attempt + 1))
+    raise RuntimeError(str(last_error))
 
 
 def _parse_srcset_urls(raw: str) -> List[str]:
@@ -356,6 +466,10 @@ def _rewrite_single_url(
         return raw_url
 
     local_target = mapping.get(archived_url)
+    if local_target is None:
+        alt = _alternate_archived_scheme_url(archived_url)
+        if alt:
+            local_target = mapping.get(alt)
     if local_target is None:
         return raw_url
 

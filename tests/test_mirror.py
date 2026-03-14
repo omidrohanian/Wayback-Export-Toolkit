@@ -93,3 +93,30 @@ def test_mirror_respects_depth_limit(tmp_path: Path) -> None:
     assert (site_dir / "index.html").exists()
     assert not (site_dir / "essay.html").exists()
     assert result.pages_saved == 1
+
+
+def test_mirror_uses_http_https_fallback_for_page_fetch(tmp_path: Path) -> None:
+    root = "https://web.archive.org/web/20200101010101/https://example.com/"
+    essay_https = "https://web.archive.org/web/20200101010101/https://example.com/essay.html"
+    essay_http = "https://web.archive.org/web/20200101010101/http://example.com/essay.html"
+
+    client = FakeMirrorHttpClient(
+        pages={
+            root: '<html><body><a href="essay.html">Essay</a></body></html>',
+            essay_http: '<html><body><h1>Essay</h1><a href="/">Home</a></body></html>',
+        },
+        payloads={},
+    )
+
+    result = mirror_snapshot(
+        root,
+        options=MirrorOptions(output_dir=tmp_path, max_depth=2, max_pages=20),
+        http_client=client,
+    )
+
+    site_dir = Path(result.site_dir)
+    assert (site_dir / "index.html").exists()
+    assert (site_dir / "essay.html").exists()
+    assert essay_http in client.page_calls
+    assert result.pages_saved == 2
+    assert any("Used scheme fallback for page" in warning for warning in result.warnings)
